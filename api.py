@@ -1,5 +1,6 @@
 import os
 import shutil
+import uuid
 from dotenv import load_dotenv
 from fastapi import FastAPI, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
@@ -21,22 +22,21 @@ app.add_middleware(
     allow_headers=["*"]
 )
 
-vectorstore = None
+vectorstores = {}  # store multiple PDFs
 
 class Question(BaseModel):
     question: str
+    session_id: str  # which PDF to query
 
 @app.post("/upload")
 async def upload_pdf(file: UploadFile = File(...)):
-    global vectorstore
+    session_id = str(uuid.uuid4())
     
-    # Save uploaded file
-    file_path = f"uploads/{file.filename}"
+    file_path = f"uploads/{session_id}_{file.filename}"
     os.makedirs("uploads", exist_ok=True)
     with open(file_path, "wb") as f:
         shutil.copyfileobj(file.file, f)
     
-    # Index the PDF
     loader = PyPDFLoader(file_path)
     documents = loader.load()
     
@@ -44,28 +44,23 @@ async def upload_pdf(file: UploadFile = File(...)):
     chunks = splitter.split_documents(documents)
     
     embeddings = OpenAIEmbeddings()
-    vectorstore = Chroma.from_documents(chunks, embeddings)
+    vectorstores[session_id] = Chroma.from_documents(chunks, embeddings)
     
-    return {"message": f"Indexed {len(chunks)} chunks from {file.filename}"}
+    return {"message": f"Indexed {len(chunks)} chunks from {file.filename}", "session_id": session_id}
 
 @app.post("/ask")
 async def ask(body: Question):
-    global vectorstore
-    if not vectorstore:
-        return {"error": "No PDF uploaded yet"}
+    if body.session_id not in vectorstores:
+        return {"error": "PDF not found. Please upload again."}
     
-    retriever = vectorstore.as_retriever()
+    retriever = vectorstores[body.session_id].as_retriever()
     docs = retriever.invoke(body.question)
     context = "\n\n".join([doc.page_content for doc in docs])
     
     llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
     messages = [
-        SystemMessage(content=f"Answer the question based on this context:\n\n{context}"),
+        SystemMessage(content=f"Answer the question based only on this context. If the answer isn't in the context, say so.\n\n{context}"),
         HumanMessage(content=body.question)
     ]
     response = llm.invoke(messages)
     return {"answer": response.content}
-
-@app.get("/")
-async def root():
-    return {"message": "PDF Chat API is running"}

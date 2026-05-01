@@ -1,9 +1,10 @@
 # PDF Chat
 
-Upload any PDF and ask questions about it using AI. Built with LangChain, ChromaDB, and OpenAI.
+Upload any PDF and ask questions about it using AI. Supports multiple PDFs simultaneously via session IDs.
 
 ## Features
-- Upload any PDF via REST API
+- Upload multiple PDFs simultaneously
+- Each upload gets a unique session ID
 - Semantic search with ChromaDB vector store
 - Answers grounded in document content only
 - FastAPI backend with auto-generated docs
